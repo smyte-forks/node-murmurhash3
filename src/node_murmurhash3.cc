@@ -136,9 +136,9 @@ private:
 };
 
 /**
- * @brief UV queue worker for murmur128
+ * @brief UV queue worker for murmur128_x86
  */
-class Murmur128Worker : public Nan::AsyncWorker {
+class Murmur128_x86Worker : public Nan::AsyncWorker {
 public:
     /**
      * @brief Constructor
@@ -147,7 +147,7 @@ public:
      * @param seed[in] hash seed
      * @param hexMode[in] hexadecimal string mode flag
      */
-    Murmur128Worker(Nan::Callback *callback, std::string& key, uint32_t seed, bool hexMode)
+    Murmur128_x86Worker(Nan::Callback *callback, std::string& key, uint32_t seed, bool hexMode)
         : Nan::AsyncWorker(callback), key_(key), seed_(seed), hexMode_(hexMode) {
     }
 
@@ -167,6 +167,47 @@ public:
         res[0] = Nan::Null();
         MakeReturnValue_murmur128(res[1], hashValue_, hexMode_);
         callback->Call(2, res, async_resource);
+    }
+
+private:
+    std::string key_;       /// hash key
+    uint32_t seed_;         /// hash seed
+    uint32_t hashValue_[4]; /// hash value
+    bool hexMode_;          /// hexadecimal string mode flag
+};
+
+/**
+ * @brief UV queue worker for murmur128_x64
+ */
+class Murmur128_x64Worker : public Nan::AsyncWorker {
+public:
+    /**
+     * @brief Constructor
+     * @param callback[in] Callback functio object
+     * @param key[in] hash key
+     * @param seed[in] hash seed
+     * @param hexMode[in] hexadecimal string mode flag
+     */
+    Murmur128_x64Worker(Nan::Callback *callback, std::string& key, uint32_t seed, bool hexMode)
+        : Nan::AsyncWorker(callback), key_(key), seed_(seed), hexMode_(hexMode) {
+    }
+
+    /**
+     * @brief Calculate MurmurHash3(128bit)
+     */
+    void Execute() {
+        MurmurHash3_x64_128(key_.c_str(), (int) key_.length(), seed_, &hashValue_);
+    }
+
+    /**
+     * @brief Invoke callback function
+     */
+    void HandleOKCallback() {
+        Nan::HandleScope scope;
+        Local<Value> res[2];
+        res[0] = Nan::Null();
+        MakeReturnValue_murmur128(res[1], hashValue_, hexMode_);
+        callback->Call(2, res);
     }
 
 private:
@@ -200,7 +241,28 @@ NAN_METHOD(murmur32_async) {
 /**
  * @brief Calculate MurmurHash3(128bit) with async interface
  */
-NAN_METHOD(murmur128_async) {
+NAN_METHOD(murmur128_x86_async) {
+    Nan::HandleScope scope;
+
+    REQ_STR_ARG(0);
+    REQ_UINT32_ARG(1);
+    REQ_BOOL_ARG(2);
+    REQ_FUN_ARG(3, cb);
+
+    std::string key = TO_UTF8VALUE(info[0]);
+    uint32_t seed = Nan::To<uint32_t>(info[1]).FromJust();
+
+    Nan::Callback *callback = new Nan::Callback(cb);
+    bool hexMode =  ToBoolean(info[2]);
+    Nan::AsyncQueueWorker(new Murmur128_x86Worker(callback, key, seed, hexMode));
+
+    info.GetReturnValue().Set(Nan::Undefined());
+}
+
+/**
+ * @brief Calculate MurmurHash3(128bit) with async interface
+ */
+NAN_METHOD(murmur128_x64_async) {
     Nan::HandleScope scope;
 
     REQ_STR_ARG(0);
@@ -213,7 +275,7 @@ NAN_METHOD(murmur128_async) {
 
     Nan::Callback *callback = new Nan::Callback(cb);
     bool hexMode = ToBoolean(info[2]);
-    Nan::AsyncQueueWorker(new Murmur128Worker(callback, key, seed, hexMode));
+    Nan::AsyncQueueWorker(new Murmur128_x64Worker(callback, key, seed, hexMode));
 
     info.GetReturnValue().Set(Nan::Undefined());
 }
@@ -244,7 +306,7 @@ NAN_METHOD(murmur32_sync) {
 /**
  * @brief Calculate MurmurHash3(128bit) with sync interface
  */
-NAN_METHOD(murmur128_sync) {
+NAN_METHOD(murmur128_x86_sync) {
     Nan::HandleScope scope;
     uint32_t out[4];
 
@@ -264,15 +326,39 @@ NAN_METHOD(murmur128_sync) {
 }
 
 /**
+ * @brief Calculate MurmurHash3(128bit) with sync interface
+ */
+NAN_METHOD(murmur128_x64_sync) {
+    Nan::HandleScope scope;
+    uint32_t out[4];
+
+    REQ_STR_ARG(0);
+    REQ_UINT32_ARG(1);
+    REQ_BOOL_ARG(2);
+
+    std::string key = TO_UTF8VALUE(info[0]);
+    uint32_t seed = Nan::To<uint32_t>(info[1]).FromJust();
+    bool hexMode =  ToBoolean(info[2]);
+
+    MurmurHash3_x64_128(key.c_str(), (int) key.length(), seed, &out);
+
+    Local<Value> ret;
+    MakeReturnValue_murmur128(ret, out, hexMode);
+    info.GetReturnValue().Set(ret);
+}
+
+/**
  * @brief Initialize
  * @param exports[in,out] exports object
  */
 
 NAN_MODULE_INIT(init) {
     Nan::Export(target, "murmur32", murmur32_async);
-    Nan::Export(target, "murmur128", murmur128_async);
+    Nan::Export(target, "murmur128_x86", murmur128_x86_async);
+    Nan::Export(target, "murmur128_x64", murmur128_x64_async);
     Nan::Export(target, "murmur32Sync", murmur32_sync);
-    Nan::Export(target, "murmur128Sync", murmur128_sync);
+    Nan::Export(target, "murmur128_x86Sync", murmur128_x86_sync);
+    Nan::Export(target, "murmur128_x64Sync", murmur128_x64_sync);
 };
 
 NODE_MODULE(murmurhash3, init)
